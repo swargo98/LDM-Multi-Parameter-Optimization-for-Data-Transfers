@@ -33,7 +33,7 @@ LDM follows a three-phase workflow:
 |-------|-------------------|-----------------|
 | **Common prep** | <ul><li>`git clone <LDM_REPO_URL>`</li><li>`cd <LDM_REPO_DIR>`</li><li>`chmod +x setup.sh && ./setup.sh`</li><li>`chmod +x host_tune.sh && sudo ./host_tune.sh`</li><li>`source venv/bin/activate`</li><li>`pip install -r requirements.txt`</li><li>Edit **`config_receiver.py`** (IP / port etc.).</li></ul> | <ul><li>Same steps 1–6 as receiver.</li><li>Edit **`config_sender.py`** (IP / port etc.).</li></ul> |
 | **Exploration run** | `python receiver.py` | <ul> <li>Generate dataset (if needed).</li> <li>Set <code>"mode": "random"</code> and a new <code>"model_version"</code> in <code>config_sender.py</code>.</li><li><code>python sender.py</code></li></ul> |
-| **Offline training** | *(no action)* | `python offline.py` &nbsp;→ trains PPO (≈45 min) |
+| **Offline training** | *(no action)* | `python offline.py` &nbsp;→ trains PPO (≈4 min) |
 | **Production / inference** | `python receiver.py` (keep running) | 1. Set `"mode": "inference"` in `config_sender.py`.<br>2. `python sender.py` |
 
 > **Tip :** `receiver.py` must be running **before any transfer** phase.  
