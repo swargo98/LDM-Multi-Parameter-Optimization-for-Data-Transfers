@@ -1,18 +1,29 @@
-# AutoMDT — Modular Architecture for High‑Performance Data Transfers
+# LDM: Efficient Multi-Parameter Optimization for High-Performance Data Transfers
 
-AutoMDT is an **agent‑driven** file‑transfer framework that couples a
-three‑headed Proximal Policy Optimization (PPO) agent with a lightweight
-I/O–network **simulator** to learn the optimal concurrency for **read, network
-and write** operations *offline*, then apply the model *online* for production
-transfers.
+Lightning Data Mover (LDM) is a learning-driven data transfer framework that **jointly coordinates pipelining, parallelism, and concurrency** to maximize end-to-end throughput while keeping overhead low.
 
-This repository accompanies our INDIS ’25 submission:
+This repository accompanies our HPDC 2026 paper:
 
-> **Modular Architecture for High-Performance and
-Low Overhead Data Transfers**  
-> Rasman M. Swargo *et al.*, INDIS @ SC 25
+> **LDM: Efficient Multi-Parameter Optimization for High-Performance Data Transfers**  
+> (Authors), HPDC 2026
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.16757552.svg)](https://doi.org/10.5281/zenodo.16757552)
+<!-- Add after camera-ready / public release -->
+<!-- [![DOI](https://zenodo.org/badge/DOI/<YOUR_DOI>.svg)](https://doi.org/<YOUR_DOI>) -->
+
+---
+
+## Workflow at a glance
+
+LDM follows a three-phase workflow:
+
+1. **Exploration + logging (about 5 minutes)**  
+   Run a short memory-to-memory transfer with random concurrency to log throughput and concurrency signals.
+
+2. **Offline training (minutes)**  
+   Configure the simulator from the exploration log and train a PPO agent offline until convergence.
+
+3. **Production transfer (online adaptation)**  
+   Run real transfers while the trained policy adaptively adjusts concurrency by stalling or reopening workers.
 
 ---
 
@@ -20,38 +31,14 @@ Low Overhead Data Transfers**
 
 | Phase | Receiver (Node B) | Sender (Node A) |
 |-------|-------------------|-----------------|
-| **Common prep** | <ul><li>`git clone https://github.com/swargo98/AutoMDT-Modular-Architecture-for-High-Performance-Data-Transfers.git`</li><li>`cd AutoMDT-Modular-Architecture-for-High-Performance-Data-Transfers`</li><li>`chmod +x setup.sh && ./setup.sh`</li><li>`source venv/bin/activate`</li><li>`pip install -r requirements.txt`</li><li>Edit **`config_receiver.py`** (IP / port etc.).</li></ul> | <ul><li>Same steps 1–5 as receiver.</li><li>Edit **`config_sender.py`** (IP / port etc.).</li></ul> |
-| **Exploration run** | `python receiver.py` | <ul> <li><strong>Generate dataset by modifying <code>file_gen.sh</code></strong> (if needed): <code>./file_gen.sh</code></li> <li>Set <code>"mode": "random"</code> and a new <code>"model_version"</code> in <code>config_sender.py</code>.</li><li><code>python sender.py</code></li></ul> |
+| **Common prep** | <ul><li>`git clone <LDM_REPO_URL>`</li><li>`cd <LDM_REPO_DIR>`</li><li>`chmod +x setup.sh && ./setup.sh`</li><li>`chmod +x host_tune.sh && sudo ./host_tune.sh`</li><li>`source venv/bin/activate`</li><li>`pip install -r requirements.txt`</li><li>Edit **`config_receiver.py`** (IP / port etc.).</li></ul> | <ul><li>Same steps 1–6 as receiver.</li><li>Edit **`config_sender.py`** (IP / port etc.).</li></ul> |
+| **Exploration run** | `python receiver.py` | <ul> <li>Generate dataset (if needed).</li> <li>Set <code>"mode": "random"</code> and a new <code>"model_version"</code> in <code>config_sender.py</code>.</li><li><code>python sender.py</code></li></ul> |
 | **Offline training** | *(no action)* | `python offline.py` &nbsp;→ trains PPO (≈45 min) |
 | **Production / inference** | `python receiver.py` (keep running) | 1. Set `"mode": "inference"` in `config_sender.py`.<br>2. `python sender.py` |
 
 > **Tip :** `receiver.py` must be running **before any transfer** phase.  
 > All tunables (ports, buffer sizes, max threads, etc.) live in
 > `config_receiver.py` and `config_sender.py`.
-
----
-
-## Repository layout
-
-```
-AutoMDT-Modular-Architecture-for-High-Performance-Data-Transfers/
-├── config_receiver.py # Receiver‑side settings
-├── config_sender.py # Sender‑side settings
-├── file_gen.sh # Utility: create random datasets
-├── get_pip.py # Bootstrap pip on bare systems
-├── log_stats.py # Parse throughput logs for offline training
-├── offline.py # Offline PPO training pipeline
-├── ppo.py # PPO agent
-├── receiver.py # Receiver daemon
-├── receiver_helper.py # Helper routines for receiver
-├── requirements.txt # Python dependencies
-├── search.py # optimizer
-├── sender.py # Sender driver (random / inference)
-├── sender_helper.py # Helper routines for sender
-├── setup.sh # Creates venv & installs deps
-├── utils.py # Shared utilities
-└── LICENSE
-```
 
 ---
 
@@ -69,9 +56,9 @@ All versions are pinned in **`requirements.txt`**.
 ## Reproducing paper results
 
 1. Use **CloudLab** or **Fabric** nodes with ≥ 10 Gb s⁻¹ NICs.  
-2. Follow the *Quick start* table above to train (≈45 min) and then
+2. Follow the *Quick start* table above to train (≈8 min) and then
    run a transfer.  
-3. Parse the logs (will be saved in the same directory) to replicate Figure 4 of the paper.
+3. Parse the logs (will be saved in the same directory) to replicate the figures of the paper.
 
 ---
 
