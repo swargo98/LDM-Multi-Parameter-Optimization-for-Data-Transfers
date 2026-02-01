@@ -237,10 +237,6 @@ def worker(process_id, q):
                                 block_size = min(chunk_size, second_target-second_data_count, remaining)
                             else:
                                 block_size = min(chunk_size, remaining)
-                            # if process_status[process_id] == 0:
-                            #     # PAUSE requested: requeue remainder of THIS chunk
-                            #     paused_mid_chunk = True
-                            #     break
                             if file_transfer:
                                 try:
                                     sent = sock.sendfile(file=file, offset=int(offset), count=int(block_size))
@@ -275,8 +271,6 @@ def worker(process_id, q):
                             filename_rel, offset, remaining))
                         q.put((file_id, offset, remaining))
                     else:
-                        # print("Finished sending file: {0}, offset: {1}, size: {2}".format(
-                        #     filename_rel, start_offset, chunk_len))
                         _mark_chunk_done(file_id)
 
                 sock.close()
@@ -324,7 +318,6 @@ def sample_transfer(params):
     sc, rc = curr_sc - prev_sc, curr_rc - prev_rc
 
     log.debug("TCP Segments >> Send Count: {0}, Retrans Count: {1}".format(sc, rc))
-    # thrpt = np.mean(throughput_logs[-2:]) if len(throughput_logs) > 2 else 0
     seconds_to_consider = max(probing_time - 2, 2)
     thrpt = np.mean(throughput_logs[-seconds_to_consider:]) if len(throughput_logs) > seconds_to_consider else 0
 
@@ -332,10 +325,7 @@ def sample_transfer(params):
     if sc != 0:
         lr = rc/sc if sc>rc else 0
 
-    # score = thrpt
     plr_impact = B*lr
-    # cc_impact_lin = (K-1) * num_workers.value
-    # score = thrpt * (1- plr_impact - cc_impact_lin)
     cc_impact_nl = K**num_workers.value
     score = (thrpt/cc_impact_nl) - (thrpt * plr_impact)
     score_value = np.round(score * (-1))
@@ -487,10 +477,7 @@ class PPOOptimizer:
         if sc != 0:
             lr = rc/sc if sc>rc else 0
 
-        # score = thrpt
         plr_impact = B*lr
-        # cc_impact_lin = (K-1) * num_workers.value
-        # score = thrpt * (1- plr_impact - cc_impact_lin)
         cc_impact_nl = K**num_workers.value
         score = (thrpt/cc_impact_nl) - (thrpt * plr_impact)
         score_value = np.round(score * (-1))
@@ -519,18 +506,7 @@ class PPOOptimizer:
         self.current_network_thread = network_thread
         self.current_network_throughput = net_thrpt
 
-
-        # utility_network = (net_thrpt/self.K ** network_thread)
-
-        # reward = utility_network
         self.current_reward = reward
-
-
-        # network_grad = (utility_network-self.utility_network)/(network_thread-self.prev_network_thread) if (network_thread-self.prev_network_thread) > 0 else 0
-        # grads = [network_grad]
-        # grads = np.array(grads, dtype=np.float32)
-
-        # self.utility_network = utility_network
 
         final_state = self.get_state()
 
@@ -550,12 +526,6 @@ def report_throughput(start_time):
         if time_since_begining >= 0.1:
             if time_since_begining >= 30 and sum(throughput_logs[-30:]) == 0:
                 file_incomplete.value = 0
-
-            # if time_since_begining >= 60:
-            #     file_incomplete.value = 0
-
-            # cpus.append(psutil.cpu_percent())
-            # log.info(f"cpu: curr - {np.round(cpus[-1], 4)}, avg - {np.round(np.mean(cpus), 4)}")
 
             total_bytes = np.sum(file_offsets)
             thrpt = np.round((total_bytes*8)/(time_since_begining*1000*1000), 2)
@@ -586,7 +556,6 @@ if __name__ == '__main__':
     parser.add_argument("--data_dir", help="Sender Data Directory")
     parser.add_argument("--method", help="choose one of them : gradient, bayes, brute, probe")
     args = vars(parser.parse_args())
-    # pp.pprint(f"Command line arguments: {args}")
 
     if args["host"]:
         configurations["receiver"]["host"] = args["host"]
@@ -606,9 +575,7 @@ if __name__ == '__main__':
     root = configurations["data_dir"]
     probing_time = configurations["probing_sec"]
     file_names = os.listdir(root) * configurations["multiplier"]
-    # file_names = [f"{fname}-{i}" for fname in os.listdir(root) for i in range(1, configurations["multiplier"] + 1)]
     file_sizes = [os.path.getsize(root+filename) for filename in file_names]
-    # file_sizes = [os.path.getsize(os.path.join(root, fname.split('-')[0])) for fname in file_names]
     file_count = mp.Value("i",len(file_names))
     throughput_logs = manager.list()
 

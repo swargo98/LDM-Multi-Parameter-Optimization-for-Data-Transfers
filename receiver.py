@@ -9,47 +9,7 @@ import numpy as np
 import psutil
 import multiprocessing as mp
 from config_receiver import configurations
-# === RECEIVER: file table + range tracking ===
 from threading import Lock
-
-# class RangeSet:
-#     """Track [start,end) intervals; supports add+merge and covered length."""
-#     __slots__ = ("iv",)  # list of (s,e), non-overlapping, sorted by s
-#     def __init__(self):
-#         self.iv = []
-
-#     def add(self, s, e):
-#         if e <= s: return
-#         out = []
-#         placed = False
-#         for a,b in self.iv:
-#             if b < s:            # entirely before new
-#                 out.append((a,b))
-#             elif e < a:          # entirely after new
-#                 if not placed:
-#                     out.append((s,e)); placed = True
-#                 out.append((a,b))
-#             else:                # overlap
-#                 s = min(s, a)
-#                 e = max(e, b)
-#         if not placed:
-#             out.append((s,e))
-#         # normalize
-#         out.sort(key=lambda x: x[0])
-#         # print(f"Previous intervals: {self.iv}, added [{s},{e}), merged to {out}")
-#         self.iv = out
-
-#     def covered(self):
-#         return sum(b - a for a,b in self.iv)
-
-# # filename_rel -> state {fd,total,ranges,lock}
-# # file_state = {}
-# # file_state_lock = Lock()
-
-# from multiprocessing import Manager
-# mgr = Manager()
-# file_state = mgr.dict()
-# file_state_lock = mgr.RLock()
 
 def _ensure_dir(path):
     d = os.path.dirname(path)
@@ -63,60 +23,6 @@ def _preallocate_fd(fd, size):
         os.ftruncate(fd, size)
     except OSError:
         os.ftruncate(fd, size)
-
-# def get_file_entry(filename_rel, total_size, direct_io=False):
-#     """Open+preallocate once, store state for concurrent writers."""
-#     with file_state_lock:
-#         print("getting file entry:", filename_rel, total_size)
-#         print("current file_state: ", file_state)
-#         st = file_state.get(filename_rel)
-#         if st is not None:
-#             return st
-
-#         abs_path = os.path.join(root, filename_rel)
-#         _ensure_dir(abs_path)
-#         flags = os.O_CREAT | os.O_RDWR
-#         if direct_io:
-#             flags |= os.O_DIRECT | os.O_SYNC  # beware alignment!
-#         fd = os.open(abs_path, flags, 0o644)
-#         _preallocate_fd(fd, int(total_size))
-#         st = {"fd": fd, "total": int(total_size), "ranges": RangeSet(), "lock": Lock()}
-#         file_state[filename_rel] = st
-#         return st
-
-# def note_block_received(filename_rel, start, length):
-#     """Record a received [start, start+length) block; return True if file complete."""
-#     st = file_state[filename_rel]
-#     end = start + length
-#     with st["lock"]:
-#         # print("noting block:", filename_rel, start, length)
-#         st["ranges"].add(start, end)
-#         return st["ranges"].covered() >= st["total"]
-    
-# def close_file_if_complete(filename_rel):
-#     st = file_state.get(filename_rel)
-#     if not st:
-#         return False
-#     print("filename_rel:", filename_rel)
-#     print("total:", st["total"])
-#     print("covered:", st["ranges"].covered())
-#     with st["lock"]:
-#         # idempotency guard
-#         if st.get("closed"):
-#             return False
-#         if st["ranges"].covered() >= st["total"]:
-#             try:
-#                 # Optional but recommended for durability
-#                 try:
-#                     os.fsync(st["fd"])
-#                 except Exception:
-#                     pass
-#                 os.close(st["fd"])
-#             finally:
-#                 st["closed"] = True
-#             return True
-#     return False
-
 
 
 chunk_size = mp.Value("i", 1024*1024)
@@ -157,21 +63,18 @@ def worker(sock, process_num):
                     header += str(d)
                     d = client.recv(1).decode()
 
-                # print(header)
                 if file_transfer:
                     parts = header.split(",")
                     if len(parts) != 4:
                         log.error("Bad header: %r", header)
                         break
 
-                    # print(parts)
 
                     filename_rel = str(parts[0])
                     offset       = int(parts[1])   # where this chunk *should* start
                     to_rcv_goal  = int(parts[2])   # how many bytes the sender intended for THIS chunk
                     total_size   = int(parts[3])
 
-                    # st = get_file_entry(filename_rel, total_size, direct_io=False)
                     abs_path = os.path.join(root, filename_rel)
                     _ensure_dir(abs_path)
                     flags = os.O_CREAT | os.O_RDWR
@@ -180,13 +83,11 @@ def worker(sock, process_num):
                     fd = os.open(abs_path, flags, 0o644)
                     if offset == 0:
                         _preallocate_fd(fd, int(total_size))
-                    # fd = st["fd"]
 
                     remaining = to_rcv_goal
                     cs = chunk_size.value if hasattr(chunk_size, "value") else chunk_size
                     max_block = int(cs) if cs else (1 << 20)
 
-                    # receive loop for this chunk; tolerate mid-chunk stop
                     current = offset
 
                     while remaining > 0:
@@ -204,15 +105,9 @@ def worker(sock, process_num):
                             log.error("short pwrite %d != %d for %s", written, len(buf), filename_rel)
                             break
 
-                        # note_block_received(filename_rel, current, written)
                         current += written
                         remaining -= written
                         total += written
-
-                    # log.info(f"Chunk done: {filename_rel}, offset: {offset}, to_rcv_goal: {to_rcv_goal}, total_size: {total_size}, received: {to_rcv_goal - remaining}")
-
-                    # if close_file_if_complete(filename_rel):
-                    #     log.info("File complete: %s (%d bytes)", filename_rel, st["total"])
 
 
                 else:
@@ -228,7 +123,6 @@ def worker(sock, process_num):
             # process_status[process_num] = 0
         except Exception as e:
             log.error(str(e))
-            # raise e
 
 
 def report_throughput():
@@ -289,21 +183,11 @@ if __name__ == '__main__':
             p.daemon = True
             p.start()
 
-        # while True:
-        #     try:
-        #         time.sleep(1)
-        #     except:
-        #         break
-
         process_status[0] = 1
-        # reporting_process = mp.Process(target=report_throughput)
-        # reporting_process.daemon = True
-        # reporting_process.start()
 
         while sum(process_status) > 0:
             time.sleep(0.1)
 
-        # reporting_process.terminate()
         for p in workers:
             if p.is_alive():
                 p.terminate()
