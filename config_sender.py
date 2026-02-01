@@ -24,7 +24,7 @@ configurations = {
         "io": 30,
     },
     "file_transfer": False,
-    "method": "probe", # options: [gradient, ppo]
+    "method": "ppo", # options: [gradient, ppo]
     "model_version": 'heur_uniform_15', # just a tag for the model
     "mode": 'inference', # random or inference
 }
