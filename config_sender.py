@@ -4,16 +4,16 @@ configurations = {
         "port": 50028
     },
     "max_file_chunk_in_MB": 512, # MB
-    "data_dir": "/mnt/nvme0n1/uniform-64G/",
+    "data_dir": "/mnt/nvme0n1/src/",
     "B": 10, # severity of the packet loss punishment
-    "K": 1.01, # cost of increasing concurrency
+    "K": 1.02, # cost of increasing concurrency
     "loglevel": "info",
     "probing_sec": 5, # probing interval in seconds
-    "network_limit": 3000, # Network limit (Mbps) per thread
+    "network_limit": 2000, # Network limit (Mbps) per thread
     "io_limit": -1, # I/O limit (Mbps) per thread
     "fixed_probing": {
         "bsize": 10,
-        "thread": 15
+        "thread": 8
     },
     "bayes": {
         "initial_run": 3,
