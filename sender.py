@@ -353,9 +353,9 @@ def normal_transfer(params):
 def run_transfer():
     params = [2]
 
-    if configurations["method"].lower() == "ppo":
+    if configurations["method"].lower() == "sac":
         log.info("Running PPO Optimization .... ")
-        optimizer = PPOOptimizer()
+        optimizer = SACOptimizer()
     
     elif configurations["method"].lower() == "brute":
         log.info("Running Brute Force Optimization .... ")
@@ -384,133 +384,6 @@ def run_transfer():
 
     if file_incomplete.value > 0:
         normal_transfer(params)
-
-class PPOOptimizer:
-    def __init__(self):
-        self.prev_network_throughput = 0
-        self.prev_network_thread = 2
-        self.prev_reward = 0
-        self.current_network_thread = 2
-        self.current_network_throughput = 0
-        self.current_reward = 0
-
-        oneGB = 1024
-        self.optimal_network_thread = 5
-
-        self.utility_network = 0
-
-        self.K = configurations["K"]
-
-        self.history_length = 3
-        self.obs_dim = 5 + 7 * self.history_length
-
-        state = self.get_state(is_start=True)
-
-
-        self.env = NetworkOptimizationEnv(black_box_function=self.get_reward, state=state, history_length=self.history_length)
-        self.agent = PPOAgentContinuous(state_dim=2, action_dim=1, lr=1e-4, eps_clip=0.1)
-
-        policy_model = ""
-        value_model = ""
-        is_inference = False
-        is_random = False
-
-        if configurations['mode'] == 'inference':
-            is_inference = True
-            policy_model = configurations['inference_policy_model']
-            value_model = configurations['inference_value_model']
-        else:
-            is_random = True
-
-        if not is_random:
-            load_model(self.agent, policy_model, value_model)
-        log.info(f"Model loaded successfully. Value: {value_model}, Policy: {policy_model}")
-
-        rewards = train_ppo(self.env, self.agent, max_episodes=configurations['max_episodes'], is_inference = is_inference, is_random = is_random)
-
-        print("Training finished.")
-
-    def get_state(self, is_start=False):
-        network_thrpt = self.current_network_throughput
-        network_thread = self.current_network_thread
-
-
-        state = SimulatorState(network_throughput=network_thrpt,
-                               network_thread=network_thread
-                               )
-        return state
-    
-    def ppo_probing(self, params):
-        global throughput_logs, exit_signal
-
-        if file_incomplete.value == 0:
-            print("408 File transfer completed.")
-            return [exit_signal, exit_signal]
-
-        params = [1 if x<1 else int(np.round(x)) for x in params]
-        log.info("412 Probing Parameters: {0}".format(params))
-        num_workers.value = params[0]
-
-        current_cc = np.sum(process_status)
-        for i in range(configurations['thread_limit']):
-            if i < params[0]:
-                process_status[i] = 1
-            else:
-                process_status[i] = 0
-
-        log.info("Active CC: {0}".format(np.sum(process_status)))
-
-        time.sleep(1)
-        prev_sc, prev_rc = tcp_stats()
-        n_time = time.time() + probing_time - 1.1
-        # time.sleep(n_time)
-        while (time.time() < n_time) and (file_incomplete.value > 0):
-            time.sleep(0.1)
-
-        curr_sc, curr_rc = tcp_stats()
-        sc, rc = curr_sc - prev_sc, curr_rc - prev_rc
-
-        log.debug("TCP Segments >> Send Count: {0}, Retrans Count: {1}".format(sc, rc))
-        thrpt = np.mean(throughput_logs[-2:]) if len(throughput_logs) > 2 else 0
-
-        lr, B, K = 0, int(configurations["B"]), float(configurations["K"])
-        if sc != 0:
-            lr = rc/sc if sc>rc else 0
-
-        plr_impact = B*lr
-        cc_impact_nl = K**num_workers.value
-        score = (thrpt/cc_impact_nl) - (thrpt * plr_impact)
-        score_value = np.round(score * (-1))
-
-        log.info("Sample Transfer -- Throughput: {0}Mbps, Loss Rate: {1}%, Score: {2}".format(
-            np.round(thrpt), np.round(lr*100, 2), score_value))
-
-        if file_incomplete.value == 0:
-            print("454 File transfer completed.")
-            return [exit_signal, exit_signal]
-        else:
-            return [thrpt, score_value]
-
-    def get_reward(self, params):
-        net_thrpt, reward = self.ppo_probing(params)
-        network_thread = params[0]
-
-        log.info(f"Throughputs -- Network: {net_thrpt}")
-
-        if net_thrpt == exit_signal:
-            return exit_signal, None
-
-        self.prev_network_thread = self.current_network_thread
-        self.prev_network_throughput = self.current_network_throughput
-        self.prev_reward = self.current_reward
-        self.current_network_thread = network_thread
-        self.current_network_throughput = net_thrpt
-
-        self.current_reward = reward
-
-        final_state = self.get_state()
-
-        return reward, final_state
 
   
 class SACOptimizer:

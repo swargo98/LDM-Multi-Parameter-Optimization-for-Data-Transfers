@@ -24,9 +24,9 @@ configurations = {
         "io": 30,
     },
     "file_transfer": False,
-    "method": "ppo", # options: [gradient, ppo]
+    "method": "sac", # options: [gradient, ppo]
     "model_version": 'heur_uniform_15', # just a tag for the model
-    "mode": 'inference', # random or inference
+    "mode": 'sac', # random or inference
 }
 
 mv = configurations["model_version"]
