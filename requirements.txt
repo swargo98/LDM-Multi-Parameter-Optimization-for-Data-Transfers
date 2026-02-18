@@ -15,3 +15,17 @@ tinyrpc
 numpy
 tqdm
 psutil
+
+# torch>=2.0.0
+# numpy>=1.24.0
+
+# # Reinforcement Learning Environment
+# # NOTE: Using old Gym API (step returns 4 values, reset returns 1 value)
+# # Do NOT install gym>=0.26.0 or gymnasium - they use incompatible API
+# gym==0.25.2
+
+# # Visualization
+# matplotlib>=3.7.0
+
+# # Progress bars
+# tqdm>=4.65.0

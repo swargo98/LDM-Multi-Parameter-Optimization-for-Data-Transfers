@@ -18,8 +18,8 @@ from config_sender import configurations
 from search import  base_optimizer, brute_force, hill_climb, cg_opt, gradient_opt_fast
 from utils import tcp_stats, get_dir_size
 import math
-from ppo import PPOAgentContinuous, train_ppo, load_model, NetworkOptimizationEnv
-from fpp_simulator import SimulatorState
+from sac_agent         import SACAgent, ReplayBuffer
+from sac_env_realworld import RealWorldSACEnv
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 configurations["cpu_count"] = mp.cpu_count()
@@ -511,7 +511,222 @@ class PPOOptimizer:
         final_state = self.get_state()
 
         return reward, final_state
-        
+
+  
+class SACOptimizer:
+    def __init__(self):
+        if configurations['mode'] == 'sac':
+            self.run_transfer(black_box_function=self.get_reward)
+        elif configurations['mode'] == 'sac_finetune':
+            self.run_transfer_with_finetuning(black_box_function=self.get_reward)
+
+        print("Training finished.")
+
+    def run_transfer(
+            self,
+            black_box_function,
+            checkpoint_path="/home/ubuntu/LDM-Multi-Parameter-Optimization-for-Data-Transfers/checkpoints/sac_agent_final.pt",
+            cc_min=1,
+            cc_max=32,
+            max_steps=10,
+            explore_steps=30,
+            num_episodes=1,
+            deterministic=True,
+            verbose=True,
+    ):
+        """
+        Run the trained agent on a real network transfer.
+
+        Args:
+            black_box_function : callable
+                Must return (throughput, packet_loss_rate) for a given [thread_count].
+            checkpoint_path    : str   path to .pt checkpoint
+            cc_min/cc_max      : int   thread count bounds
+            max_steps          : int   steps per episode
+            explore_steps      : int   random probes before first episode
+            num_episodes       : int   how many episodes to run
+            deterministic      : bool  True = mean action (best for deployment)
+            verbose            : bool  print per-step output
+        """
+        # 1. Build environment
+        env = RealWorldSACEnv(
+            black_box_function=black_box_function,
+            cc_min=cc_min,
+            cc_max=cc_max,
+            max_steps=max_steps,
+        )
+
+        # 2. Estimate bandwidth from real probes
+        env.exploration_phase(duration=explore_steps, verbose=verbose)
+
+        # 3. Load agent
+        agent = SACAgent(state_dim=4, action_dim=1)
+        agent.load(checkpoint_path)
+
+        if verbose:
+            print(f"\nAgent loaded from {checkpoint_path}")
+
+        # 4. Run episodes
+        all_results = []
+
+        for ep in range(num_episodes):
+            state = env.reset()
+            ep_reward = 0.0
+            ep_throughputs = []
+            ep_ccs = []
+
+            if verbose:
+                print(f"\n--- Episode {ep+1}/{num_episodes} ---")
+                print(f"  {'Step':<5} {'CC':<5} {'Throughput':>12}  {'Util':>6}  {'Loss':>6}  {'Reward':>8}")
+                print(f"  {'-'*52}")
+
+            done = False
+            while not done:
+                action = agent.select_action(state, deterministic=deterministic)
+                state, reward, done, info = env.step(action)
+
+                ep_reward += reward
+                ep_throughputs.append(info['throughput'])
+                ep_ccs.append(info['concurrency'])
+
+                if verbose:
+                    util = info['throughput'] / (info['bw_est'] + 1e-8) * 100
+                    print(
+                        f"  {env.current_step:<5} {info['concurrency']:<5} "
+                        f"{info['throughput']:>12.2f}  {util:>5.1f}%  "
+                        f"{info['packet_loss']:>5.3f}  {reward:>8.3f}"
+                    )
+
+            result = {
+                'episode':           ep + 1,
+                'reward':            ep_reward,
+                'avg_throughput':    np.mean(ep_throughputs),
+                'avg_concurrency':   np.mean(ep_ccs),
+                'utilization_pct':   np.mean(ep_throughputs) / (env.BW_est + 1e-8) * 100,
+            }
+            all_results.append(result)
+
+            if verbose:
+                print(f"\n  avg_throughput={result['avg_throughput']:.2f}  "
+                    f"avg_cc={result['avg_concurrency']:.1f}  "
+                    f"util={result['utilization_pct']:.1f}%  "
+                    f"reward={ep_reward:.2f}")
+
+        return all_results
+
+
+    def run_transfer_with_finetuning(
+        self,
+        black_box_function,
+        checkpoint_path,
+        cc_min=1,
+        cc_max=32,
+        max_steps=10,
+        explore_steps=30,
+        num_episodes=50,
+        batch_size=64,
+        save_path='./checkpoints/sac_finetuned.pt',
+        verbose=True,
+    ):
+        """
+        Run the agent AND update weights from real experience.
+        Use this if the offline-trained agent doesn't generalize well enough
+        to your specific link.
+        """
+        env = RealWorldSACEnv(
+            black_box_function=black_box_function,
+            cc_min=cc_min,
+            cc_max=cc_max,
+            max_steps=max_steps,
+        )
+        env.exploration_phase(duration=explore_steps, verbose=verbose)
+
+        agent = SACAgent(state_dim=4, action_dim=1)
+        agent.load(checkpoint_path)
+
+        buffer = ReplayBuffer(capacity=100_000, state_dim=4, action_dim=1)
+
+        for ep in range(1, num_episodes + 1):
+            state = env.reset()
+            ep_reward = 0.0
+            done = False
+
+            while not done:
+                action = agent.select_action(state, deterministic=False)
+                next_state, reward, done, info = env.step(action)
+                buffer.push(state, action, reward, next_state, float(done))
+                ep_reward += reward
+                state = next_state
+
+                if len(buffer) >= batch_size:
+                    agent.update(buffer, batch_size)
+
+            if verbose:
+                print(f"[Finetune] ep={ep}/{num_episodes}  "
+                    f"reward={ep_reward:.2f}  "
+                    f"alpha={agent.alpha.item():.4f}  "
+                    f"buffer={len(buffer)}")
+
+            if ep % 10 == 0:
+                agent.save(save_path)
+
+        agent.save(save_path)
+        return agent
+
+    def sac_probing(self, params):
+        global throughput_logs, exit_signal
+
+        if file_incomplete.value == 0:
+            print("408 File transfer completed.")
+            return [exit_signal, exit_signal]
+
+        params = [1 if x<1 else int(np.round(x)) for x in params]
+        log.info("412 Probing Parameters: {0}".format(params))
+        num_workers.value = params[0]
+
+        current_cc = np.sum(process_status)
+        for i in range(configurations['thread_limit']):
+            if i < params[0]:
+                process_status[i] = 1
+            else:
+                process_status[i] = 0
+
+        log.info("Active CC: {0}".format(np.sum(process_status)))
+
+        time.sleep(1)
+        prev_sc, prev_rc = tcp_stats()
+        n_time = time.time() + probing_time - 1.1
+        # time.sleep(n_time)
+        while (time.time() < n_time) and (file_incomplete.value > 0):
+            time.sleep(0.1)
+
+        curr_sc, curr_rc = tcp_stats()
+        sc, rc = curr_sc - prev_sc, curr_rc - prev_rc
+
+        log.debug("TCP Segments >> Send Count: {0}, Retrans Count: {1}".format(sc, rc))
+        thrpt = np.mean(throughput_logs[-2:]) if len(throughput_logs) > 2 else 0
+
+        lr, B, K = 0, int(configurations["B"]), float(configurations["K"])
+        if sc != 0:
+            lr = rc/sc if sc>rc else 0
+
+        plr_impact = B*lr
+        cc_impact_nl = K**num_workers.value
+        score = (thrpt/cc_impact_nl) - (thrpt * plr_impact)
+        score_value = np.round(score * (-1))
+
+        log.info("Sample Transfer -- Throughput: {0}Mbps, Loss Rate: {1}%, Score: {2}".format(
+            np.round(thrpt), np.round(lr*100, 2), score_value))
+
+        if file_incomplete.value == 0:
+            print("454 File transfer completed.")
+            return [exit_signal, exit_signal]
+        else:
+            return thrpt, lr
+
+    def get_reward(self, params):
+        return self.sac_probing(params)
+
 
 
 def report_throughput(start_time):
