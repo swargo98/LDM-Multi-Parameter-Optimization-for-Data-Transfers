@@ -2,10 +2,10 @@
 
 Lightning Data Mover (LDM) is a learning-driven data transfer framework that **jointly coordinates pipelining, parallelism, and concurrency** to maximize end-to-end throughput while keeping overhead low.
 
-This repository accompanies our HPDC 2026 paper:
+This repository accompanies our SC 2026 submission:
 
-> **LDM: Efficient Multi-Parameter Optimization for High-Performance Data Transfers**  
-> (Authors), HPDC 2026
+> **Unified Multi-Parameter Data Transfer Optimization for Heterogeneous Workloads**  
+> (Authors), SC 2026
 
 <!-- Add after camera-ready / public release -->
 <!-- [![DOI](https://zenodo.org/badge/DOI/<YOUR_DOI>.svg)](https://doi.org/<YOUR_DOI>) -->
