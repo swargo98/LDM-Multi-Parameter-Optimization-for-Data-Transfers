@@ -29,6 +29,15 @@ configurations = {
     "mode": 'inference', # random or inference
 }
 
+# Optional per-run overrides for experiment scripts (see experiments/chunk_sweep.py), e.g.
+#   LDM_CONFIG_OVERRIDES='{"max_file_chunk_in_MB": 256, "mode": "random"}'
+# Top-level keys only. Applied before the derived defaults below, so overriding
+# "mode" or "model_version" also updates the model paths, max_episodes and multiplier.
+import json as _json
+import os as _os
+if _os.environ.get("LDM_CONFIG_OVERRIDES"):
+    configurations.update(_json.loads(_os.environ["LDM_CONFIG_OVERRIDES"]))
+
 mv = configurations["model_version"]
 configurations.setdefault("inference_value_model",
                           f"best_models/{mv}_offline_value.pth")
